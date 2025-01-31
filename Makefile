@@ -12,4 +12,4 @@ clean:
 	rm -f mastersplash
 
 mastersplash: main.c
-	@$(CC) -o mastersplash main.c $(CFLAGS)
+	@$(CC) -o mastersplash main.c $(CFLAGS) -lm

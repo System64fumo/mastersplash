@@ -8,6 +8,7 @@
 #include <sys/mman.h>
 #include <stdint.h>
 #include <signal.h>
+#include <math.h>
 
 typedef struct {
 	int width;
@@ -60,37 +61,63 @@ void draw_progress_bar(uint8_t *fb_data, struct fb_fix_screeninfo finfo, struct 
 	int bar_x = (screen_width - bar_width) / 2;
 	int bar_y = screen_height - bar_height - 10;
 
-	int corner_radius = bar_height / 2;
+	int corner_radius = (bar_height / 2) + 1;
 
 	for (int y = bar_y; y < bar_y + bar_height; y++) {
 		for (int x = bar_x; x < bar_x + bar_width; x++) {
-			// Skip rounded corners
-			int dx, dy, r2 = corner_radius * corner_radius;
+			int dx = 0, dy = 0;
+			float distance;
+			float alpha = 1.0f;
 
-			// Top-left corner
-			dx = x - (bar_x + corner_radius);
-			dy = y - (bar_y + corner_radius);
-			if (x - bar_x < corner_radius && y - bar_y < corner_radius && (dx * dx + dy * dy > r2)) continue;
+			// Check for rounded corner regions (adjusting X by 1px outward)
+			if (x - bar_x < corner_radius && y - bar_y < corner_radius) { 
+				dx = x - (bar_x + corner_radius - 1);
+				dy = y - (bar_y + corner_radius - 1);
+			}
+			else if (x - bar_x >= bar_width - corner_radius && y - bar_y < corner_radius) {
+				dx = x - (bar_x + bar_width - corner_radius);
+				dy = y - (bar_y + corner_radius - 1);
+			}
+			else if (x - bar_x < corner_radius && y - bar_y >= bar_height - corner_radius) {
+				dx = x - (bar_x + corner_radius - 1);
+				dy = y - (bar_y + bar_height - corner_radius);
+			}
+			else if (x - bar_x >= bar_width - corner_radius && y - bar_y >= bar_height - corner_radius) {
+				dx = x - (bar_x + bar_width - corner_radius);
+				dy = y - (bar_y + bar_height - corner_radius);
+			}
+			else {
+				dx = dy = 0;
+			}
 
-			// Top-right corner
-			dx = x - (bar_x + bar_width - corner_radius - 1);
-			dy = y - (bar_y + corner_radius);
-			if (x - bar_x >= bar_width - corner_radius && y - bar_y < corner_radius && (dx * dx + dy * dy > r2)) continue;
+			distance = sqrtf(dx * dx + dy * dy);
+			if (distance > corner_radius) continue;
 
-			// Bottom-left corner
-			dx = x - (bar_x + corner_radius);
-			dy = y - (bar_y + bar_height - corner_radius - 1);
-			if (x - bar_x < corner_radius && y - bar_y >= bar_height - corner_radius && (dx * dx + dy * dy > r2)) continue;
+			if (distance > corner_radius - 1) 
+				alpha = 1.0f - (distance - (corner_radius - 1));
 
-			// Bottom-right corner
-			dx = x - (bar_x + bar_width - corner_radius - 1);
-			dy = y - (bar_y + bar_height - corner_radius - 1);
-			if (x - bar_x >= bar_width - corner_radius && y - bar_y >= bar_height - corner_radius && (dx * dx + dy * dy > r2)) continue;
+			// Determine progress color
+			uint32_t fg_color = (x - bar_x < bar_width * progress / 100.0) ? 0xFFFFFF : 0x808080;
+			uint32_t bg_color = 0x000000;
+
+			// Blend colors for anti-aliasing
+			uint8_t r_fg = (fg_color >> 16) & 0xFF;
+			uint8_t g_fg = (fg_color >> 8) & 0xFF;
+			uint8_t b_fg = fg_color & 0xFF;
+
+			uint8_t r_bg = (bg_color >> 16) & 0xFF;
+			uint8_t g_bg = (bg_color >> 8) & 0xFF;
+			uint8_t b_bg = bg_color & 0xFF;
+
+			uint8_t r = (uint8_t)(r_fg * alpha + r_bg * (1.0f - alpha));
+			uint8_t g = (uint8_t)(g_fg * alpha + g_bg * (1.0f - alpha));
+			uint8_t b = (uint8_t)(b_fg * alpha + b_bg * (1.0f - alpha));
+
+			uint32_t blended_pixel = (r << 16) | (g << 8) | b;
 
 			// Set pixel color
 			int fb_index = (y * finfo.line_length) + (x * bytes_per_pixel);
-			uint32_t pixel = (x - bar_x < bar_width * progress / 100.0) ? 0xFFFFFF : 0x808080;
-			memcpy(fb_data + fb_index, &pixel, bytes_per_pixel);
+			memcpy(fb_data + fb_index, &blended_pixel, bytes_per_pixel);
 		}
 	}
 }

@@ -10,6 +10,16 @@
 #include <signal.h>
 #include <math.h>
 
+int progress = 0;
+int step_count = 10;
+uint8_t *fb_data;
+struct fb_fix_screeninfo finfo;
+struct fb_var_screeninfo vinfo;
+int bar_width, bar_height;
+size_t fb_size;
+int fb_fd;
+uint8_t *image_data;
+
 typedef struct {
 	int width;
 	int height;
@@ -122,15 +132,6 @@ void draw_progress_bar(uint8_t *fb_data, struct fb_fix_screeninfo finfo, struct 
 	}
 }
 
-int progress = 0;
-uint8_t *fb_data;
-struct fb_fix_screeninfo finfo;
-struct fb_var_screeninfo vinfo;
-int bar_width, bar_height;
-size_t fb_size;
-int fb_fd;
-uint8_t *image_data;
-
 void cleanup_and_exit() {
 	munmap(fb_data, fb_size);
 	close(fb_fd);
@@ -140,7 +141,10 @@ void cleanup_and_exit() {
 
 void handle_sigusr1(int sig) {
 	if (progress < 100) {
-		progress += 10;
+		progress += (100 / step_count);
+		if (progress > 100) {
+			progress = 100;
+		}
 		draw_progress_bar(fb_data, finfo, vinfo, bar_width, bar_height, progress);
 	}
 	if (progress >= 100) {
@@ -157,7 +161,7 @@ int main(int argc, char *argv[]) {
 	const char *ppm_file = argv[1];
 	bar_width = atoi(argv[2]);
 	bar_height = atoi(argv[3]);
-	int step_count = atoi(argv[4]);
+	step_count = atoi(argv[4]);
 	const char *fb_device = "/dev/fb0";
 
 	FILE *fp = fopen(ppm_file, "rb");

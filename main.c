@@ -20,6 +20,14 @@ size_t fb_size;
 int fb_fd;
 uint8_t *image_data;
 
+// Progress bar customization
+uint32_t border_color = 0x303030;
+uint32_t bg_color = 0x202020;
+uint32_t fill_color = 0xFFFFFF;
+int border_width = 1;
+int margin = 5;
+int corner_radius = 15;
+
 typedef struct {
 	int width;
 	int height;
@@ -63,7 +71,70 @@ static int read_ppm_header(FILE* fp, PPMHeader* header) {
 	return 0;
 }
 
-void draw_progress_bar(uint8_t *fb_data, struct fb_fix_screeninfo finfo, struct fb_var_screeninfo vinfo, int bar_width, int bar_height, int progress) {
+uint32_t blend_colors(uint32_t color1, uint32_t color2, float alpha) {
+	uint8_t r1 = (color1 >> 16) & 0xFF;
+	uint8_t g1 = (color1 >> 8) & 0xFF;
+	uint8_t b1 = color1 & 0xFF;
+
+	uint8_t r2 = (color2 >> 16) & 0xFF;
+	uint8_t g2 = (color2 >> 8) & 0xFF;
+	uint8_t b2 = color2 & 0xFF;
+
+	uint8_t r = (uint8_t)(r1 * alpha + r2 * (1.0f - alpha));
+	uint8_t g = (uint8_t)(g1 * alpha + g2 * (1.0f - alpha));
+	uint8_t b = (uint8_t)(b1 * alpha + b2 * (1.0f - alpha));
+
+	return (r << 16) | (g << 8) | b;
+}
+
+void draw_rounded_rect(uint8_t *fb_data, struct fb_fix_screeninfo finfo, int bytes_per_pixel, 
+	int start_x, int start_y, int width, int height, int radius, uint32_t color, uint32_t blend_color) {
+
+	for (int y = start_y; y < start_y + height; y++) {
+		for (int x = start_x; x < start_x + width; x++) {
+			int dx = 0, dy = 0;
+			float distance;
+			float alpha = 1.0f;
+
+			if (x - start_x < radius && y - start_y < radius) { 
+				dx = x - (start_x + radius - 1);
+				dy = y - (start_y + radius - 1);
+			}
+			else if (x - start_x >= width - radius && y - start_y < radius) {
+				dx = x - (start_x + width - radius);
+				dy = y - (start_y + radius - 1);
+			}
+			else if (x - start_x < radius && y - start_y >= height - radius) {
+				dx = x - (start_x + radius - 1);
+				dy = y - (start_y + height - radius);
+			}
+			else if (x - start_x >= width - radius && y - start_y >= height - radius) {
+				dx = x - (start_x + width - radius);
+				dy = y - (start_y + height - radius);
+			}
+			else {
+				dx = dy = 0;
+			}
+
+			distance = sqrtf(dx * dx + dy * dy);
+			if (distance > radius) continue;
+
+			if (distance > radius - 1) 
+				alpha = 1.0f - (distance - (radius - 1));
+
+			// Blend colors for anti-aliasing
+			uint32_t blended_pixel = blend_colors(color, blend_color, alpha);
+
+			// Set pixel color
+			int fb_index = (y * finfo.line_length) + (x * bytes_per_pixel);
+			memcpy(fb_data + fb_index, &blended_pixel, bytes_per_pixel);
+		}
+	}
+}
+
+void draw_progress_bar(uint8_t *fb_data, struct fb_fix_screeninfo finfo, struct fb_var_screeninfo vinfo, 
+	int bar_width, int bar_height, int progress) {
+
 	int screen_width = vinfo.xres;
 	int screen_height = vinfo.yres;
 	int bytes_per_pixel = vinfo.bits_per_pixel / 8;
@@ -71,64 +142,24 @@ void draw_progress_bar(uint8_t *fb_data, struct fb_fix_screeninfo finfo, struct 
 	int bar_x = (screen_width - bar_width) / 2;
 	int bar_y = screen_height - bar_height - 10;
 
-	int corner_radius = (bar_height / 2) + 1;
+	// Draw the border
+	draw_rounded_rect(fb_data, finfo, bytes_per_pixel, 
+					  bar_x - border_width, bar_y - border_width, 
+					  bar_width + 2 * border_width, bar_height + 2 * border_width, 
+					  corner_radius + border_width, border_color, 0x000000);
 
-	for (int y = bar_y; y < bar_y + bar_height; y++) {
-		for (int x = bar_x; x < bar_x + bar_width; x++) {
-			int dx = 0, dy = 0;
-			float distance;
-			float alpha = 1.0f;
+	// Draw the inner background
+	draw_rounded_rect(fb_data, finfo, bytes_per_pixel, 
+					  bar_x, bar_y, bar_width, bar_height, 
+					  corner_radius, bg_color, border_color);
 
-			// Check for rounded corner regions (adjusting X by 1px outward)
-			if (x - bar_x < corner_radius && y - bar_y < corner_radius) { 
-				dx = x - (bar_x + corner_radius - 1);
-				dy = y - (bar_y + corner_radius - 1);
-			}
-			else if (x - bar_x >= bar_width - corner_radius && y - bar_y < corner_radius) {
-				dx = x - (bar_x + bar_width - corner_radius);
-				dy = y - (bar_y + corner_radius - 1);
-			}
-			else if (x - bar_x < corner_radius && y - bar_y >= bar_height - corner_radius) {
-				dx = x - (bar_x + corner_radius - 1);
-				dy = y - (bar_y + bar_height - corner_radius);
-			}
-			else if (x - bar_x >= bar_width - corner_radius && y - bar_y >= bar_height - corner_radius) {
-				dx = x - (bar_x + bar_width - corner_radius);
-				dy = y - (bar_y + bar_height - corner_radius);
-			}
-			else {
-				dx = dy = 0;
-			}
-
-			distance = sqrtf(dx * dx + dy * dy);
-			if (distance > corner_radius) continue;
-
-			if (distance > corner_radius - 1) 
-				alpha = 1.0f - (distance - (corner_radius - 1));
-
-			// Determine progress color
-			uint32_t fg_color = (x - bar_x < bar_width * progress / 100.0) ? 0xFFFFFF : 0x808080;
-			uint32_t bg_color = 0x000000;
-
-			// Blend colors for anti-aliasing
-			uint8_t r_fg = (fg_color >> 16) & 0xFF;
-			uint8_t g_fg = (fg_color >> 8) & 0xFF;
-			uint8_t b_fg = fg_color & 0xFF;
-
-			uint8_t r_bg = (bg_color >> 16) & 0xFF;
-			uint8_t g_bg = (bg_color >> 8) & 0xFF;
-			uint8_t b_bg = bg_color & 0xFF;
-
-			uint8_t r = (uint8_t)(r_fg * alpha + r_bg * (1.0f - alpha));
-			uint8_t g = (uint8_t)(g_fg * alpha + g_bg * (1.0f - alpha));
-			uint8_t b = (uint8_t)(b_fg * alpha + b_bg * (1.0f - alpha));
-
-			uint32_t blended_pixel = (r << 16) | (g << 8) | b;
-
-			// Set pixel color
-			int fb_index = (y * finfo.line_length) + (x * bytes_per_pixel);
-			memcpy(fb_data + fb_index, &blended_pixel, bytes_per_pixel);
-		}
+	// Draw the fill
+	int fill_width = (bar_width - 2 * margin) * progress / 100.0;
+	if (fill_width > 0) {
+		draw_rounded_rect(fb_data, finfo, bytes_per_pixel, 
+						  bar_x + margin, bar_y + margin, 
+						  fill_width, bar_height - 2 * margin, 
+						  corner_radius - margin, fill_color, bg_color);
 	}
 }
 

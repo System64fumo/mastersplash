@@ -60,8 +60,34 @@ void draw_progress_bar(uint8_t *fb_data, struct fb_fix_screeninfo finfo, struct 
 	int bar_x = (screen_width - bar_width) / 2;
 	int bar_y = screen_height - bar_height - 10;
 
+	int corner_radius = bar_height / 2;
+
 	for (int y = bar_y; y < bar_y + bar_height; y++) {
 		for (int x = bar_x; x < bar_x + bar_width; x++) {
+			// Skip rounded corners
+			int dx, dy, r2 = corner_radius * corner_radius;
+
+			// Top-left corner
+			dx = x - (bar_x + corner_radius);
+			dy = y - (bar_y + corner_radius);
+			if (x - bar_x < corner_radius && y - bar_y < corner_radius && (dx * dx + dy * dy > r2)) continue;
+
+			// Top-right corner
+			dx = x - (bar_x + bar_width - corner_radius - 1);
+			dy = y - (bar_y + corner_radius);
+			if (x - bar_x >= bar_width - corner_radius && y - bar_y < corner_radius && (dx * dx + dy * dy > r2)) continue;
+
+			// Bottom-left corner
+			dx = x - (bar_x + corner_radius);
+			dy = y - (bar_y + bar_height - corner_radius - 1);
+			if (x - bar_x < corner_radius && y - bar_y >= bar_height - corner_radius && (dx * dx + dy * dy > r2)) continue;
+
+			// Bottom-right corner
+			dx = x - (bar_x + bar_width - corner_radius - 1);
+			dy = y - (bar_y + bar_height - corner_radius - 1);
+			if (x - bar_x >= bar_width - corner_radius && y - bar_y >= bar_height - corner_radius && (dx * dx + dy * dy > r2)) continue;
+
+			// Set pixel color
 			int fb_index = (y * finfo.line_length) + (x * bytes_per_pixel);
 			uint32_t pixel = (x - bar_x < bar_width * progress / 100.0) ? 0xFFFFFF : 0x808080;
 			memcpy(fb_data + fb_index, &pixel, bytes_per_pixel);

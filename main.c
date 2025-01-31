@@ -27,6 +27,7 @@ uint32_t fill_color = 0xFFFFFF;
 int border_width = 1;
 int margin = 5;
 int corner_radius = 15;
+int bottom_margin = 50;
 
 typedef struct {
 	int width;
@@ -140,7 +141,7 @@ void draw_progress_bar(uint8_t *fb_data, struct fb_fix_screeninfo finfo, struct 
 	int bytes_per_pixel = vinfo.bits_per_pixel / 8;
 
 	int bar_x = (screen_width - bar_width) / 2;
-	int bar_y = screen_height - bar_height - 10;
+	int bar_y = screen_height - bar_height - bottom_margin;
 
 	// Draw the border
 	draw_rounded_rect(fb_data, finfo, bytes_per_pixel, 
@@ -184,8 +185,8 @@ void handle_sigusr1(int sig) {
 }
 
 int main(int argc, char *argv[]) {
-	if (argc < 5) {
-		fprintf(stderr, "Usage: %s <file.ppm> <bar_width> <bar_height> <step_count>\n", argv[0]);
+	if (argc < 6) {
+		fprintf(stderr, "Usage: %s <file.ppm> <bar_width> <bar_height> <step_count> <bottom_margin>\n", argv[0]);
 		return EXIT_FAILURE;
 	}
 
@@ -193,6 +194,10 @@ int main(int argc, char *argv[]) {
 	bar_width = atoi(argv[2]);
 	bar_height = atoi(argv[3]);
 	step_count = atoi(argv[4]);
+	bottom_margin = atoi(argv[5]);
+
+	corner_radius = bar_height / 2;
+
 	const char *fb_device = "/dev/fb0";
 
 	FILE *fp = fopen(ppm_file, "rb");
